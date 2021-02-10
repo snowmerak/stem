@@ -13,41 +13,36 @@ import (
 	"github.com/snowmerak/mocha/err"
 )
 
-// initData ...
+// template ...
 // define name, cpu number, ram and disk capacity(mb), using
 // what kind of script language.
-type initData struct {
-	Name        string   `json:"name"`
-	Image       string   `json:"image"`
-	CPU         int      `json:"cpu"`
-	RAM         int      `json:"ram"`
-	Disk        int      `json:"disk"`
-	UsingPython bool     `json:"using_python"`
-	UsingRuby   bool     `json:"using_ruby"`
-	UsingJulia  bool     `json:"using_julia"`
-	Scripts     []string `json:"scripts"`
+// launch <dir>
+type template struct {
+	Name  string `json:"name"`
+	Image string `json:"image"`
+	CPU   int    `json:"cpu"`
+	RAM   int    `json:"ram"`
+	Disk  int    `json:"disk"`
 }
+
+const templateFileName = "template.json"
 
 //makeSeed ... make seed file
 func makeSeed(args ...string) error {
 	dir := args[0]
 	if _, e := os.Stat(dir); os.IsNotExist(e) {
 		if e := os.Mkdir(dir, os.ModePerm); e != nil {
-			return err.Wrap(e, "makeSeed-Mkdir")
+			return err.Wrap(e, "maketemplate-Mkdir")
 		}
 	}
 
-	filename := filepath.Join(dir, "seed.json")
+	filename := filepath.Join(dir, templateFileName)
 
-	data := initData{}
+	data := template{}
 	data.Name = "new_instant"
 	data.CPU = 1
 	data.Disk = 1024
 	data.RAM = 512
-	data.UsingJulia = false
-	data.UsingPython = false
-	data.UsingRuby = false
-	data.Scripts = []string{}
 
 	f, e := os.Create(filename)
 	if e != nil {
@@ -65,22 +60,18 @@ func makeSeed(args ...string) error {
 }
 
 func launch(args ...string) error {
-	data := initData{}
+	data := template{}
 	dir := args[0]
-	filename := filepath.Join(dir, "seed.json")
+	filename := filepath.Join(dir, templateFileName)
 
-	// if not exist seed.json, create new seed.json with standard data
-	fmt.Println("check seed file")
+	// if not exist template.json, create new seed.json with standard data
+	fmt.Println("check template file")
 	if _, e := os.Stat(filename); os.IsNotExist(e) {
-		fmt.Println("create seed file")
+		fmt.Println("create template file")
 		data.Name = "new_instant"
 		data.CPU = 1
 		data.Disk = 1024
 		data.RAM = 512
-		data.UsingJulia = false
-		data.UsingPython = false
-		data.UsingRuby = false
-		data.Scripts = []string{}
 
 		f, e := os.Create(filename)
 		if e != nil {
@@ -93,10 +84,13 @@ func launch(args ...string) error {
 		if e := encoder.Encode(data); e != nil {
 			return err.Wrap(e, "launch-EncodeJSON")
 		}
+
+		fmt.Println("template file is created")
+		return nil
 	}
 
-	// open and read from seed.json
-	fmt.Println("read seed file")
+	// open and read from template.json
+	fmt.Println("read template file")
 	{
 		f, e := os.Open(filename)
 		if e != nil {
@@ -108,6 +102,7 @@ func launch(args ...string) error {
 			return err.Wrap(e, "launch-DecodeJSON")
 		}
 	}
+
 	vmName := data.Name
 
 	// create VM instance
@@ -154,63 +149,7 @@ func launch(args ...string) error {
 		}
 	}
 
-	// install script language
-	fmt.Println("install script languages")
-	{
-		if data.UsingJulia {
-			cmd := exec.Command("multipass", "exec", vmName, "--", "sudo", "snap", "install", "julia", "--classic")
-			cmd.Stdin = os.Stdin
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			if e := cmd.Run(); e != nil {
-				return err.Wrap(e, "launch-InstallJulia")
-			}
-		}
-		if data.UsingRuby {
-			cmd := exec.Command("multipass", "exec", vmName, "--", "sudo", "snap", "install", "ruby", "--classic")
-			cmd.Stdin = os.Stdin
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			if e := cmd.Run(); e != nil {
-				return err.Wrap(e, "launch-InstallRuby")
-			}
-		}
-	}
-
-	// transfer script file and run
-	fmt.Println("install scripts")
-	{
-		for _, v := range data.Scripts {
-			scriptPath := filepath.Join(dir, v)
-			scriptFile := filepath.Base(scriptPath)
-			{
-				cmd := exec.Command("multipass", "transfer", scriptPath, fmt.Sprintf("%s:%s", vmName, scriptFile))
-				cmd.Stdin = os.Stdin
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-				if e := cmd.Run(); e != nil {
-					return err.Wrap(e, "launch-TransferScript")
-				}
-			}
-			{
-				cmd := exec.Command("multipass", "exec", vmName, "--")
-				cmd.Stdin = os.Stdin
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-				switch filepath.Ext(scriptPath) {
-				case ".rb":
-					cmd.Args = append(cmd.Args, "sudo", "snap", "run", "ruby", scriptFile)
-				case ".jl":
-					cmd.Args = append(cmd.Args, "sudo", "snap", "run", "julia", scriptFile)
-				case ".py":
-					cmd.Args = append(cmd.Args, "sudo", "python3", scriptFile)
-				}
-				if e := cmd.Run(); e != nil {
-					return err.Wrap(e, "launch-RunScript")
-				}
-			}
-		}
-	}
+	fmt.Printf("%v is launched\n", vmName)
 
 	return nil
 }
